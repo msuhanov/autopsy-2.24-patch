@@ -1,0 +1,179 @@
+diff -Naur autopsy-2.24/CHANGES.txt autopsy-2.24-1/CHANGES.txt
+--- autopsy-2.24/CHANGES.txt	2010-04-01 06:28:01.000000000 +0400
++++ autopsy-2.24-1/CHANGES.txt	2014-04-23 23:37:36.692049000 +0400
+@@ -1,3 +1,9 @@
++--------------------------- Version 2.24-1 --------------------------------
++04/20/14: bug fix: incorrect HFS directories handling fixed.
++04/20/14: bug fix: incorrect Sun VTOC volume system handling fixed.
++04/20/14: update: added support for Ext4.
++04/23/14: bug fix: incorrect timestamps (that are equal to zero) are handled as 01/01/1970 00:00:00
++
+ --------------------------- Version 2.24 --------------------------------
+ 3/22/10: Bug Fix: resolved issue 2950986 to support HFS directories. 
+ 
+diff -Naur autopsy-2.24/configure autopsy-2.24-1/configure
+--- autopsy-2.24/configure	2010-04-01 06:28:01.000000000 +0400
++++ autopsy-2.24-1/configure	2014-04-20 19:56:49.900796000 +0400
+@@ -1,10 +1,10 @@
+ #!/bin/sh
+ 
+ # Minimum version of TSK that is required
+-minver="3.1.0";
++minver="4.1.3";
+ 
+ # The last released version of TSK
+-curtskver="3.1.1";
++curtskver="4.1.3";
+ 
+ # Configuration script for the Autopsy Forensic Browser
+ #
+diff -Naur autopsy-2.24/lib/Args.pm autopsy-2.24-1/lib/Args.pm
+--- autopsy-2.24/lib/Args.pm	2008-09-29 06:42:46.000000000 +0400
++++ autopsy-2.24-1/lib/Args.pm	2014-04-20 18:17:55.652009000 +0400
+@@ -162,7 +162,7 @@
+     }
+     unless ($Args::args{'case'} =~ /^$::REG_CASE$/o) {
+         Print::print_check_err(
+-            "Invalid case value (letters, num, and symbols only");
++            "Invalid case value (letters, num, and symbols only)");
+     }
+     return 0;
+ }
+diff -Naur autopsy-2.24/lib/Caseman.pm autopsy-2.24-1/lib/Caseman.pm
+--- autopsy-2.24/lib/Caseman.pm	2008-11-08 00:28:39.000000000 +0300
++++ autopsy-2.24-1/lib/Caseman.pm	2014-04-20 19:31:01.708672000 +0400
+@@ -2739,7 +2739,7 @@
+             }
+             elsif ((/^DOS Partition/)
+                 || (/^BSD Disk/)
+-                || (/^Sun VTOC/)
++                || (/^Sun Volume/)
+                 || (/^MAC Partition/)
+                 || (/^GUID Partition/))
+             {
+@@ -2819,7 +2819,7 @@
+             local *OUT2;
+             my $out2;
+ 
+-            # Run 'fstat -t' on the image
++            # Run 'fsstat -t' on the image
+             Exec::exec_pipe(*OUT2,
+                 "'$::TSKDIR/fsstat' -o $start[$cnt] -i $itype -t $img_path");
+ 
+diff -Naur autopsy-2.24/lib/define.pl autopsy-2.24-1/lib/define.pl
+--- autopsy-2.24/lib/define.pl	2010-04-01 06:28:01.000000000 +0400
++++ autopsy-2.24-1/lib/define.pl	2014-04-20 20:07:41.409511930 +0400
+@@ -1,5 +1,5 @@
+ #
+-$VER = '2.24';
++$VER = '2.24-1';
+ 
+ $HTTP_NL    = "\x0a";
+ $notes_file = "";
+diff -Naur autopsy-2.24/lib/File.pm autopsy-2.24-1/lib/File.pm
+--- autopsy-2.24/lib/File.pm	2010-04-01 06:28:01.000000000 +0400
++++ autopsy-2.24-1/lib/File.pm	2014-04-20 17:59:21.441263000 +0400
+@@ -1066,7 +1066,8 @@
+         # This is a directory
+         if (   (/mode:\s+d/)
+             || (/File Attributes: Directory/)
+-            || (/^Flags:.*?Directory/))
++            || (/^Flags:.*?Directory/)
++            || (/^Type:.*?Folder/))
+         {
+             close(OUT);
+ 
+diff -Naur autopsy-2.24/lib/Fs.pm autopsy-2.24-1/lib/Fs.pm
+--- autopsy-2.24/lib/Fs.pm	2008-10-02 01:12:35.000000000 +0400
++++ autopsy-2.24-1/lib/Fs.pm	2014-04-21 00:24:02.375409935 +0400
+@@ -7,14 +7,15 @@
+ $Fs::types[3]  = "ufs";
+ $Fs::types[4]  = "iso9660";
+ $Fs::types[5]  = "-----";
+-$Fs::types[6]  = "fat12";
+-$Fs::types[7]  = "fat16";
+-$Fs::types[8]  = "fat32";
+-$Fs::types[9]  = "bsdi";
+-$Fs::types[10] = "freebsd";
+-$Fs::types[11] = "openbsd";
+-$Fs::types[12] = "solaris";
+-$Fs::types[13] = "hfs";
++$Fs::types[6]  = "ext4";
++$Fs::types[7]  = "fat12";
++$Fs::types[8]  = "fat16";
++$Fs::types[9]  = "fat32";
++$Fs::types[10]  = "bsdi";
++$Fs::types[11] = "freebsd";
++$Fs::types[12] = "openbsd";
++$Fs::types[13] = "solaris";
++$Fs::types[14] = "hfs";
+ 
+ # These need to be updated as The Sleuth Kit supports more file systems
+ #
+@@ -110,6 +111,15 @@
+ $Fs::meta_str{'linux-ext3'}   = "Inode";
+ $Fs::is_fs{'linux-ext3'}      = 1;
+ 
++$Fs::first_meta{'ext4'} = $Fs::root_meta{'ext4'} = 2;
++$Fs::first_addr{'ext4'} = 0;
++$Fs::addr_unit{'ext4'}  = 'Fragment';
++$Fs::has_ctime{'ext4'}  = 1;
++$Fs::has_crtime{'ext4'} = 1;
++$Fs::has_mtime{'ext4'}  = 1;
++$Fs::meta_str{'ext4'}   = "Inode";
++$Fs::is_fs{'ext4'}      = 1;
++
+ $Fs::first_meta{'ext'} = $Fs::root_meta{'ext'} = 2;
+ $Fs::first_addr{'ext'} = 0;
+ $Fs::addr_unit{'ext'}  = 'Fragment';
+diff -Naur autopsy-2.24/lib/Timeline.pm autopsy-2.24-1/lib/Timeline.pm
+--- autopsy-2.24/lib/Timeline.pm	2008-09-29 06:42:46.000000000 +0400
++++ autopsy-2.24-1/lib/Timeline.pm	2014-04-23 23:29:17.864239000 +0400
+@@ -1,4 +1,4 @@
+-#
++﻿#
+ # Timeline functions
+ #
+ # Brian Carrier [carrier@sleuthkit.org]
+@@ -801,7 +801,7 @@
+         if (exists $Args::args{'st_year'}) {
+             Args::check_st_year();
+             $year = Args::get_st_year();
+-            if (($year < 1970) || ($year > 2020)) {
++            if (($year < 1970) || ($year > 2025)) {
+                 print("Invalid starting year\n");
+                 return 1;
+             }
+@@ -854,7 +854,7 @@
+             && ($Args::args{'end_year'} =~ /^(\d\d\d\d)$/))
+         {
+             $year = $1;
+-            if (($year < 1970) || ($year > 2020)) {
++            if (($year < 1970) || ($year > 2025)) {
+                 print("Invalid ending year\n");
+                 return 1;
+             }
+@@ -1141,6 +1141,7 @@
+         my $cnt = 0;
+         while (<TL>) {
+             $cnt++;
++            s/^Xxx Xxx 00 0000 00:00:00/Thu Jan 01 1970 00:00:00/;
+             if (/^(?:\w\w\w )?(\w\w\w)\s+\d\d\s+(\d\d\d\d)\s+\d\d:\d\d:\d\d/) {
+                 $url = "tl=$tl_vol&st_mon=$::m2d{$1}&st_year=$2";
+ 
+@@ -1283,6 +1284,7 @@
+     print "<p><table cellspacing=2 border=0>\n";
+ 
+     while (<TL>) {
++        s/^Xxx Xxx 00 0000 00:00:00/Thu Jan 01 1970 00:00:00/;
+         my @a = split(/ /, $_);
+         next unless (scalar(@a) == 5);
+         my $mon  = $::m2d{$a[1]};
+@@ -1335,6 +1337,7 @@
+     my $zone = 0;
+     my $row  = 0;
+     while (<TL>) {
++        s/^Xxx Xxx 00 0000 00:00:00/Thu Jan 01 1970 00:00:00/;
+         if (
+ /^(?:(\w\w\w\s+)?(\w\w\w\s+\d\d\s+\d\d\d\d)\s+(\d\d:\d\d:\d\d))?\s+(\d+)\s+([macb\.]+)\s+([-\/\?\w]+)\s+([\d\w\/]+)\s+([\d\w\/]+)\s+($::REG_META)\s+(.*)$/o
+           )
